@@ -40,6 +40,12 @@
 #define CENTER YMAX/2*(XMAX+1)+XMAX/2
 #define NodeINIT CENTER
 
+// change
+/*
+    1. read map size and change
+    2. 
+*/
+
 /** ref doc : 
 *  1. A* algorithm implement:https://dev.to/jansonsa/a-star-a-path-finding-c-4a4h
 *  2. Youtube Video:https://www.youtube.com/watch?v=icZj67PTFhc
@@ -211,7 +217,7 @@ w
                 else if(Map[x][y] == SAFE)
                     printf(" ");
                 else
-                    printf("+");
+                    printf(" ");
             }
             printf("\n");
         }
@@ -229,7 +235,7 @@ w
                 else if(eMap[x][y] == SAFE)
                     printf(" ");
                 else
-                    printf("+");
+                    printf(" ");
             }
             printf("\n");
         }
@@ -248,7 +254,7 @@ w
                 else if(eMap[x][y] == SAFE)
                     printf(" ");
                 else
-                    printf("+");
+                    printf(" ");
             }
             printf("\n");
         }
@@ -258,8 +264,10 @@ w
 
   void EnlargeMap()
   {
+    // confirm navigation_sim working
+    
     ROS_INFO("Start Map Update");
-
+    printf("%d\n",my_map->info.height*my_map->info.width);
     /*make 2D map and init eMap*/
     for (size_t i = XMIN; i < XMAX+1; i++)
     {
@@ -302,7 +310,7 @@ w
         } 
     }
     /*print all destinations*/
-    //print(PRINT_ALL_DESTINATION);
+    print(PRINT_ALL_DESTINATION);
     ROS_INFO("Finish Map Update");
   }
 
