@@ -29,8 +29,8 @@
 #define ISPATH 1
 #define OCCUPIED 100
 #define DEFAULT 0.0
-#define E_SIZE 2    //Enlarge size
-#define PATH_PUB_INTERVAL 10     // 4 take one point as path
+#define E_SIZE 3    //Enlarge size
+#define PATH_PUB_INTERVAL 10     //  point interval
 /*print type*/
 #define PRINT_TYPE_MAP 0 
 #define PRINT_TYPE_ASTAR_PATH 1
@@ -296,7 +296,7 @@ void ACML::Enlargemap()
 void ACML::print(int type)
 {
     /*write into file , map...*/
-    std::string path = "/home/nvidia/ROS_CAR/ros_acml.txt";
+    std::string path = "/home/dennis/ROS/ROS_CAR/ros_acml.txt";
     std::ofstream newFile;
     switch(type)
     {
