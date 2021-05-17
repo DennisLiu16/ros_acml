@@ -1,0 +1,7 @@
+<launch>
+    <node pkg="navigation_sim" type="navigation_sim_node" name="CarController" >
+        <remap from="/move_base_simple/goal" to="/ros_acml/goal" />
+    </node>
+    <node pkg="ros_acml" type="ros_acml_node" name="ros_acml" output="screen"/>
+    
+</launch>

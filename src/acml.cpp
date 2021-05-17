@@ -6,6 +6,7 @@
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/Twist.h>  
 #include <ros_acml/isReached.h>
+#include <ros_acml/acml_goal.h>
 /*for vector include*/
 #include <iostream>
 #include <fstream>
@@ -90,7 +91,7 @@ class ACML{
         geometry_msgs::PoseStampedConstPtr my_sub_goal = nullptr;
         ros_acml::isReachedConstPtr my_reached = nullptr; 
         geometry_msgs::TwistConstPtr my_pose = nullptr;
-        geometry_msgs::PoseStamped my_pub_goal;
+        ros_acml::acml_goal my_pub_goal;
         ros::NodeHandle nh;
         ros::Publisher goal_pub;
         ros::Subscriber goal_sub;
@@ -129,6 +130,7 @@ class ACML{
         void solveAStar(Node *nodeStart, Node *nodeEnd);
         void Direction_Handler(Node* _current);
         bool isInPath(int,int);
+        void pub();
         
               
 };
@@ -140,11 +142,9 @@ ACML::~ACML()
         delete [] eMap;
 }
 
-void ACML::pubIfReached()
+void ACML::pub()
 {
-    if(!AStar_Path.empty() && my_reached->Reached)
-    {
-        Node* nodeNext = AStar_Path.front();
+    Node* nodeNext = AStar_Path.front();
         grid_Coordinate gPub = {
             .x = nodeNext->self.x,
             .y = nodeNext->self.y
@@ -155,7 +155,15 @@ void ACML::pubIfReached()
         my_pub_goal.pose.orientation.w = nodeNext->w;
         my_pub_goal.pose.orientation.z = nodeNext->z;
         goal_pub.publish(my_pub_goal);
+        printf("Next Destination:%f,%f",tPub->x,tPub->y);
         AStar_Path.pop_front();
+}
+
+void ACML::pubIfReached()
+{
+    if(!AStar_Path.empty() && my_reached != nullptr && my_reached->Reached)
+    {
+        pub();
     }
 }
 
@@ -163,9 +171,9 @@ bool ACML::updateAStar()
 {
     /* only update goal */
     /* check it's from AStarPath or user input*/
-    if( my_pub_goal.pose.position.x != my_sub_goal->pose.position.x ||
-        my_pub_goal.pose.position.y != my_sub_goal->pose.position.y
-    )
+    // if( my_pub_goal.pose.position.x != my_sub_goal->pose.position.x ||
+    //     my_pub_goal.pose.position.y != my_sub_goal->pose.position.y
+    //     )
     {
         printf("%f,%f\n",my_pose->linear.x,my_pose->linear.y);
         printf("%f,%f\n",my_sub_goal->pose.position.x,my_sub_goal->pose.position.y);
@@ -192,10 +200,12 @@ bool ACML::updateAStar()
         printf("End(%d,%d)\n",NodeEnd->self.x,NodeEnd->self.y);
         solveAStar(NodeStart,NodeEnd);
         print(PRINT_TYPE_ASTAR_PATH);
+
+        /*pub first*/
+        pub();
         printf("A star update finish\n");
         return true;
     }
-    return false;
 }
 
 /*class functions implement*/
@@ -225,12 +235,16 @@ bool ACML::updateMapInfoOnce()
 bool ACML::SubPubInit()
 {
     /* you should check navigation_sim open first */
-    goal_pub = nh.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal",1000);
+    goal_pub = nh.advertise<ros_acml::acml_goal>("/ros_acml/goal",1000);
 
     /*err ref : https://answers.ros.org/question/36200/subscribing-to-topic-throw-compilation-error/ */
     reach_sub = nh.subscribe("/isReached",10,&ACML::reachCallBack,this);
     goal_sub = nh.subscribe("/move_base_simple/goal",1000,&ACML::goalCallBack,this);
     pose_sub = nh.subscribe("/robot_pose",1000,&ACML::poseCallBack,this);
+    my_pub_goal.pose.position.x = 1.0;
+    goal_pub.publish(my_pub_goal);
+    
+    return true;
 }
 
 void* ACML::new2d(int h, int w, int size)
@@ -632,6 +646,7 @@ int main(int argc, char** argv)
     if(myACML.updateMapInfoOnce() && myACML.SubPubInit())
     {
         /* if map update ok then do sub and pub , if also ok enter main process */
+
         ROS_INFO("Init Done!");
         ros::Rate rate(LOOP_RATE);
         myACML.Enlargemap();
