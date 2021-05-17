@@ -30,7 +30,7 @@
 #define OCCUPIED 100
 #define DEFAULT 0.0
 #define E_SIZE 2    //Enlarge size
-#define PATH_PUB_INTERVAL 4     // 4 take one point as path
+#define PATH_PUB_INTERVAL 20     // 4 take one point as path
 /*print type*/
 #define PRINT_TYPE_MAP 0 
 #define PRINT_TYPE_ASTAR_PATH 1
@@ -155,7 +155,7 @@ void ACML::pub()
         my_pub_goal.pose.orientation.w = nodeNext->w;
         my_pub_goal.pose.orientation.z = nodeNext->z;
         goal_pub.publish(my_pub_goal);
-        printf("Next Destination:%f,%f",tPub->x,tPub->y);
+        printf("Next Destination:%f,%f\n",tPub->x,tPub->y);
         AStar_Path.pop_front();
 }
 
@@ -627,15 +627,21 @@ void ACML::solveAStar(Node *nodeStart, Node *nodeEnd)
     /*Store Path in Deque*/
 
     nodeCurrent = nodeEnd;
+    int total = 0;
     int count = 0;
     while(nodeCurrent->parent != nullptr)
     {
         Direction_Handler(nodeCurrent);
-        AStar_Path.push_front(nodeCurrent);
+        if(count > PATH_PUB_INTERVAL)
+        {
+            AStar_Path.push_front(nodeCurrent);
+            count = 0;
+        }
         nodeCurrent = nodeCurrent->parent;
+        total++;
         count++;
     }
-    printf("step count : %d\n",count);
+    printf("step count : %d\n",total);
 }
 
 
