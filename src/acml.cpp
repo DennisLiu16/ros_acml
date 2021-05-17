@@ -30,7 +30,7 @@
 #define OCCUPIED 100
 #define DEFAULT 0.0
 #define E_SIZE 2    //Enlarge size
-#define PATH_PUB_INTERVAL 20     // 4 take one point as path
+#define PATH_PUB_INTERVAL 10     // 4 take one point as path
 /*print type*/
 #define PRINT_TYPE_MAP 0 
 #define PRINT_TYPE_ASTAR_PATH 1
@@ -145,18 +145,21 @@ ACML::~ACML()
 void ACML::pub()
 {
     Node* nodeNext = AStar_Path.front();
-        grid_Coordinate gPub = {
-            .x = nodeNext->self.x,
-            .y = nodeNext->self.y
-        };
-        true_Coordinate *tPub = g2t(&gPub);
-        my_pub_goal.pose.position.x = tPub->x;
-        my_pub_goal.pose.position.y = tPub->y;
-        my_pub_goal.pose.orientation.w = nodeNext->w;
-        my_pub_goal.pose.orientation.z = nodeNext->z;
-        goal_pub.publish(my_pub_goal);
-        printf("Next Destination:%f,%f\n",tPub->x,tPub->y);
-        AStar_Path.pop_front();
+    grid_Coordinate gPub = {
+        .x = nodeNext->self.x,
+        .y = nodeNext->self.y
+    };
+    true_Coordinate *tPub = g2t(&gPub);
+    my_pub_goal.pose.position.x = tPub->x;
+    my_pub_goal.pose.position.y = tPub->y;
+    my_pub_goal.pose.orientation.w = nodeNext->w;
+    my_pub_goal.pose.orientation.z = nodeNext->z;
+    goal_pub.publish(my_pub_goal);
+    printf("Next Destination:%f,%f\n",tPub->x,tPub->y);
+    AStar_Path.pop_front();
+    if(AStar_Path.empty())
+        ROS_INFO("Last Goal Pub");
+
 }
 
 void ACML::pubIfReached()
@@ -164,6 +167,10 @@ void ACML::pubIfReached()
     if(!AStar_Path.empty() && my_reached != nullptr && my_reached->Reached)
     {
         pub();
+    }
+    else if(my_reached != nullptr && my_reached->Reached)
+    {
+        ROS_INFO("Arrive!");
     }
 }
 
@@ -174,6 +181,7 @@ bool ACML::updateAStar()
     // if( my_pub_goal.pose.position.x != my_sub_goal->pose.position.x ||
     //     my_pub_goal.pose.position.y != my_sub_goal->pose.position.y
     //     )
+    AStar_Path.clear();
     {
         printf("%f,%f\n",my_pose->linear.x,my_pose->linear.y);
         printf("%f,%f\n",my_sub_goal->pose.position.x,my_sub_goal->pose.position.y);
@@ -641,6 +649,7 @@ void ACML::solveAStar(Node *nodeStart, Node *nodeEnd)
         total++;
         count++;
     }
+    AStar_Path.push_back(nodeEnd);
     printf("step count : %d\n",total);
 }
 
