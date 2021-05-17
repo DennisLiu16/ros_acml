@@ -102,6 +102,8 @@ class ACML{
         float Y_SHIFT = DEFAULT;
         float XMAP_SIZE = DEFAULT;        //size in meters , record at info/resolution and info/width , info/height
         float YMAP_SIZE = DEFAULT;
+        float XMAP_RATIO = DEFAULT;       // grid / true
+        float YMAP_RATIO = DEFAULT;
         int width = (int)DEFAULT;
         int height = (int)DEFAULT;
         int XMAX = (int)DEFAULT;
@@ -183,12 +185,11 @@ bool ACML::updateAStar()
         };
 
 
-        
         grid_Coordinate *gStart = t2g(&tStart);
         Node *NodeStart = &nodes[gStart->y*width+gStart->x];
         Node *NodeEnd = &nodes[gGoal->y*width+gGoal->x];
-        printf("Start(%d,%d)\n",nodeStart->self.x,nodeStart->self.y);
-        printf("End(%d,%d)\n",nodeEnd->self.x,nodeEnd->self.y);
+        printf("Start(%d,%d)\n",NodeStart->self.x,NodeStart->self.y);
+        printf("End(%d,%d)\n",NodeEnd->self.x,NodeEnd->self.y);
         solveAStar(NodeStart,NodeEnd);
         print(PRINT_TYPE_ASTAR_PATH);
         printf("A star update finish\n");
@@ -210,6 +211,8 @@ bool ACML::updateMapInfoOnce()
         YMAP_SIZE = my_map->info.resolution*my_map->info.height;
         width = my_map->info.width;
         height = my_map->info.height;
+        XMAP_RATIO = width/XMAP_SIZE;    // grid/true
+        YMAP_RATIO = height/YMAP_SIZE;
         XMAX = my_map->info.width -1;
         YMAX = my_map->info.height -1;
         // XMIN = YMIN = 0;    change this if you need
@@ -289,6 +292,8 @@ void ACML::print(int type)
                     {
                         if(Map[y][x] == OCCUPIED)
                             row.append(1,'+');
+                        else if(y == YMIN || x == XMIN || y == YMAX || x == XMAX)
+                            row.append(1,'+');
                         else if(Map[y][x] == SAFE)
                             row.append(1,' ');
                         else
@@ -308,6 +313,8 @@ void ACML::print(int type)
                     for (int x = XMIN; x < width; x++)
                     {
                         if(eMap[y][x] == OCCUPIED)
+                            row.append(1,'+');
+                        else if(y == YMIN || x == XMIN || y == YMAX || x == XMAX)
                             row.append(1,'+');
                         else if(eMap[y][x] == SAFE)
                             row.append(1,' ');
@@ -372,18 +379,27 @@ bool ACML::isInPath(int x, int y)
 
 grid_Coordinate* ACML::t2g(true_Coordinate *t)
 {
-    int x = round((t->x - X_SHIFT)*XMAP_SIZE - 1);
-    int y = round((t->y - Y_SHIFT)*YMAP_SIZE - 1);
+    int x = round((t->x - X_SHIFT)*XMAP_RATIO - 1);
+    int y = round((t->y - Y_SHIFT)*YMAP_RATIO - 1);
     grid_Coordinate *g = new grid_Coordinate(); 
     g->x = x;
     g->y = y;
-    return g;
+    if(x >= XMIN && x < width && y >= YMIN && y < height)
+        return g;
+    else
+    {
+        ROS_INFO("t2g error");
+        printf("Error From:%f,%f\n",t->x,t->y);
+        printf("Error Result:%d,%d\n",g->x,g->y);
+        g->x = g->y = 0;
+        return g;
+    }
 }
 
 true_Coordinate* ACML::g2t(grid_Coordinate *g)
 {
-    float x = (float)(g->x+1)/XMAP_SIZE + X_SHIFT;
-    float y = (float)(g->y+1)/YMAP_SIZE + Y_SHIFT;
+    float x = (float)(g->x+1)/XMAP_RATIO + X_SHIFT;
+    float y = (float)(g->y+1)/YMAP_RATIO + Y_SHIFT;
     true_Coordinate *t = new true_Coordinate();
     t->x = x;
     t->y = y;
@@ -592,7 +608,6 @@ void ACML::solveAStar(Node *nodeStart, Node *nodeEnd)
                 nodeNeighbor->fCost = nodeNeighbor->gCost + heuristic(nodeNeighbor, nodeEnd);
             }
         }
-        printf("Length of listNotTestedNodes:%d\n",listNotTestedNodes.size());
     }
     
     /*Store Path in Deque*/
