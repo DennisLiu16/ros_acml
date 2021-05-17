@@ -4,6 +4,7 @@
 #include <ros/ros.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/Twist.h>  
 #include <ros_acml/isReached.h>
 /*for vector include*/
 #include <iostream>
@@ -16,6 +17,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <math.h>
+#include <assert.h>
 
 /*define*/
 #define LOOP_RATE 10
@@ -23,12 +25,14 @@
 #define EMPTY -128
 #define UNKNOWN -1
 #define SAFE 0
+#define ISPATH 1
 #define OCCUPIED 100
 #define DEFAULT 0.0
 #define E_SIZE 2    //Enlarge size
 #define PATH_PUB_INTERVAL 4     // 4 take one point as path
 /*print type*/
 #define PRINT_TYPE_MAP 0 
+#define PRINT_TYPE_ASTAR_PATH 1
 #define NEW2D(H, W, TYPE) (TYPE **)new2d(H, W, sizeof(TYPE))
 
 /*structure df*/
@@ -69,21 +73,29 @@
 /*class - acml*/
 class ACML{
     public:
+        bool getNewGoal = false;
         /*functions*/
         bool updateMapInfoOnce();
+        bool updateAStar();
         bool SubPubInit();
         void* new2d(int h, int w, int size);
         void Enlargemap();
         void print(int type);
+        void pubIfReached();
         ~ACML();
 
     protected:
         /*Vars*/
         nav_msgs::OccupancyGridConstPtr my_map = nullptr;
+        geometry_msgs::PoseStampedConstPtr my_sub_goal = nullptr;
         ros_acml::isReachedConstPtr my_reached = nullptr; 
+        geometry_msgs::TwistConstPtr my_pose = nullptr;
+        geometry_msgs::PoseStamped my_pub_goal;
         ros::NodeHandle nh;
         ros::Publisher goal_pub;
+        ros::Subscriber goal_sub;
         ros::Subscriber reach_sub;
+        ros::Subscriber pose_sub;
         std::deque<true_Coordinate> destination_deque;
         std::deque<Node*> AStar_Path;
         float X_SHIFT = DEFAULT;    //origin shift , record at info/origin/position
@@ -98,13 +110,23 @@ class ACML{
         int YMIN = (int)DEFAULT;
         int8_t** Map = nullptr;
         int8_t** eMap = nullptr;
+        Node *nodes = nullptr;
+        Node *nodeStart = nullptr;
+        Node *nodeEnd = nullptr;
+        
 
         /*functions*/
-        grid_Coordinate t2g(true_Coordinate);
-        true_Coordinate g2t(grid_Coordinate);    // coordinate tf between true and grid 
+        grid_Coordinate* t2g(true_Coordinate*);
+        true_Coordinate* g2t(grid_Coordinate*);    // coordinate tf between true and grid 
         void reachCallBack(const ros_acml::isReachedConstPtr &Reach);
+        void goalCallBack(const geometry_msgs::PoseStampedConstPtr &Goal);
+        void poseCallBack(const geometry_msgs::TwistConstPtr &Pose);
         int8_t** getMap2DArray();
         int8_t** getEMap(int8_t**);
+        void initNodes();
+        void solveAStar(Node *nodeStart, Node *nodeEnd);
+        void Direction_Handler(Node* _current);
+        bool isInPath(int,int);
         
               
 };
@@ -114,6 +136,65 @@ ACML::~ACML()
         delete [] Map;
     if(eMap!=nullptr)
         delete [] eMap;
+}
+
+void ACML::pubIfReached()
+{
+    if(!AStar_Path.empty() && my_reached->Reached)
+    {
+        Node* nodeNext = AStar_Path.front();
+        grid_Coordinate gPub = {
+            .x = nodeNext->self.x,
+            .y = nodeNext->self.y
+        };
+        true_Coordinate *tPub = g2t(&gPub);
+        my_pub_goal.pose.position.x = tPub->x;
+        my_pub_goal.pose.position.y = tPub->y;
+        my_pub_goal.pose.orientation.w = nodeNext->w;
+        my_pub_goal.pose.orientation.z = nodeNext->z;
+        goal_pub.publish(my_pub_goal);
+        AStar_Path.pop_front();
+    }
+}
+
+bool ACML::updateAStar()
+{
+    /* only update goal */
+    /* check it's from AStarPath or user input*/
+    if( my_pub_goal.pose.position.x != my_sub_goal->pose.position.x ||
+        my_pub_goal.pose.position.y != my_sub_goal->pose.position.y
+    )
+    {
+        printf("%f,%f\n",my_pose->linear.x,my_pose->linear.y);
+        printf("%f,%f\n",my_sub_goal->pose.position.x,my_sub_goal->pose.position.y);
+        /* if user input do solveAStar */
+        true_Coordinate tGoal = {
+            .x = my_sub_goal->pose.position.x,
+            .y = my_sub_goal->pose.position.y
+        };
+        grid_Coordinate *gGoal = t2g(&tGoal);
+        /* init nodes*/
+        initNodes();
+
+        /* solve Astar path*/
+        true_Coordinate tStart = {
+            .x = my_pose->linear.x,
+            .y = my_pose->linear.y
+        };
+
+
+        
+        grid_Coordinate *gStart = t2g(&tStart);
+        Node *NodeStart = &nodes[gStart->y*width+gStart->x];
+        Node *NodeEnd = &nodes[gGoal->y*width+gGoal->x];
+        printf("Start(%d,%d)\n",nodeStart->self.x,nodeStart->self.y);
+        printf("End(%d,%d)\n",nodeEnd->self.x,nodeEnd->self.y);
+        solveAStar(NodeStart,NodeEnd);
+        print(PRINT_TYPE_ASTAR_PATH);
+        printf("A star update finish\n");
+        return true;
+    }
+    return false;
 }
 
 /*class functions implement*/
@@ -132,7 +213,7 @@ bool ACML::updateMapInfoOnce()
         XMAX = my_map->info.width -1;
         YMAX = my_map->info.height -1;
         // XMIN = YMIN = 0;    change this if you need
-
+    
         return (width > 0 && height > 0);
     }
     return false;
@@ -145,6 +226,8 @@ bool ACML::SubPubInit()
 
     /*err ref : https://answers.ros.org/question/36200/subscribing-to-topic-throw-compilation-error/ */
     reach_sub = nh.subscribe("/isReached",10,&ACML::reachCallBack,this);
+    goal_sub = nh.subscribe("/move_base_simple/goal",1000,&ACML::goalCallBack,this);
+    pose_sub = nh.subscribe("/robot_pose",1000,&ACML::poseCallBack,this);
 }
 
 void* ACML::new2d(int h, int w, int size)
@@ -165,6 +248,19 @@ void ACML::reachCallBack(const ros_acml::isReachedConstPtr &Reach)
     my_reached = Reach;
 }
 
+void ACML::goalCallBack(const geometry_msgs::PoseStampedConstPtr &Goal)
+{
+    /*get new goal*/
+    my_sub_goal = Goal;
+    getNewGoal = true;
+}
+
+void ACML::poseCallBack(const geometry_msgs::TwistConstPtr &Pose)
+{
+    my_pose = Pose;
+    
+}
+
 void ACML::Enlargemap()
 {
     Map = getMap2DArray();
@@ -174,15 +270,15 @@ void ACML::Enlargemap()
 
 void ACML::print(int type)
 {
+    /*write into file , map...*/
+    std::string path = "/home/nvidia/ROS_CAR/ros_acml.txt";
+    std::ofstream newFile;
     switch(type)
     {
         case PRINT_TYPE_MAP:
         {
             if(Map!=nullptr)
             {
-                /*write into file , map...*/
-                std::string path = "/home/nvidia/ROS_CAR/ros_acml.txt";
-                std::ofstream newFile;
                 newFile.open(path);
                 /*print map*/
                 newFile << "print Map" << std::endl;
@@ -220,32 +316,77 @@ void ACML::print(int type)
                     }
                     newFile << row << std::endl;
                 }
-                newFile.close();
+                
             }
+            newFile << std::endl <<std::endl;
+            break;
+        }
+        case PRINT_TYPE_ASTAR_PATH:
+        {
+            int8_t **Path = NEW2D(height,width,int8_t);
+            for (size_t y = YMIN; y < height; y++)
+            {
+                for (size_t x = XMIN; x < width; x++)
+                {
+                    if(isInPath(x,y))
+                        Path[y][x] = ISPATH;
+                    else
+                        Path[y][x] = eMap[y][x];
+                }
+
+            }
+            newFile.open(path,std::ios::app);
+            newFile << "print A Star Path" << std::endl;
+
+            for (int y = YMAX; y > YMIN-1 ; y--)
+            {
+                std::string row ="";
+                for (int x = XMIN; x < width; x++)
+                {
+                    if(Path[y][x] == OCCUPIED)
+                        row.append(1,'+');
+                    else if(Path[y][x] == SAFE)
+                        row.append(1,' ');
+                    else if(Path[y][x] == ISPATH)
+                        row.append(1,'o');
+                    else
+                        row.append(1,' ');
+                }
+                newFile << row << std::endl;
+            }
+            newFile << std::endl <<std::endl;
+            break;
         }
     }
+    newFile.close();
     
 }
 
-grid_Coordinate ACML::t2g(true_Coordinate t)
+bool ACML::isInPath(int x, int y)
 {
-    int x = round((t.x - X_SHIFT)*XMAP_SIZE - 1);
-    int y = round((t.y - Y_SHIFT)*YMAP_SIZE - 1);
-    grid_Coordinate g{
-        .x = x,
-        .y = y
-    };
+      std::deque<Node*>::iterator iter = find(AStar_Path.begin(),AStar_Path.end(),&nodes[y*height + x]);
+      if(iter != AStar_Path.end())
+        return true;
+      return false;
+}
+
+grid_Coordinate* ACML::t2g(true_Coordinate *t)
+{
+    int x = round((t->x - X_SHIFT)*XMAP_SIZE - 1);
+    int y = round((t->y - Y_SHIFT)*YMAP_SIZE - 1);
+    grid_Coordinate *g = new grid_Coordinate(); 
+    g->x = x;
+    g->y = y;
     return g;
 }
 
-true_Coordinate ACML::g2t(grid_Coordinate g)
+true_Coordinate* ACML::g2t(grid_Coordinate *g)
 {
-    float x = (float)(g.x+1)/XMAP_SIZE + X_SHIFT;
-    float y = (float)(g.y+1)/YMAP_SIZE + Y_SHIFT;
-    true_Coordinate t{
-        .x = x,
-        .y = y
-    };
+    float x = (float)(g->x+1)/XMAP_SIZE + X_SHIFT;
+    float y = (float)(g->y+1)/YMAP_SIZE + Y_SHIFT;
+    true_Coordinate *t = new true_Coordinate();
+    t->x = x;
+    t->y = y;
     return t;
 }
 
@@ -320,6 +461,155 @@ int8_t** ACML::getEMap(int8_t** Map)
     
 }
 
+void ACML::initNodes()
+{
+    if (nodes == nullptr)
+    {
+        nodes = new Node[height*width];
+        /*init Neighbors*/
+        for(int y = YMIN; y < height; y++)
+        {
+            for(int x = XMIN;x < width; x++)
+            {
+                /*NSWE*/
+                if(y>0)
+                    nodes[y*width+x].vecNeighbors.push_back(&nodes[(y - 1)*width + (x + 0)]);
+                if(y<YMAX)
+                    nodes[y*width+x].vecNeighbors.push_back(&nodes[(y + 1)*width + (x + 0)]);
+                if(x>0)
+                    nodes[y*width+x].vecNeighbors.push_back(&nodes[(y + 0)*width + (x - 1)]);
+                if(x<XMAX)
+                    nodes[y*width+x].vecNeighbors.push_back(&nodes[(y + 0)*width + (x + 1)]);
+
+                /*Diagonally*/
+                if(x>0 && y>0)
+                    nodes[y*width+x].vecNeighbors.push_back(&nodes[(y - 1)*width + (x - 1)]);
+                if(y<YMAX && x>0)
+                    nodes[y*width+x].vecNeighbors.push_back(&nodes[(y + 1)*width + (x - 1)]);
+                if(x<XMAX && y>0)
+                    nodes[y*width+x].vecNeighbors.push_back(&nodes[(y - 1)*width + (x + 1)]);
+                if(x<XMAX && y<YMAX)
+                    nodes[y*width+x].vecNeighbors.push_back(&nodes[(y + 1)*width + (x + 1)]);
+            }
+        }
+    }
+    /*init val*/
+    for(int y = YMIN; y < height; y++)
+    {
+        for(int x = XMIN; x < width; x++)
+        {
+            Node *thisNode = &nodes[y*width+x];
+            thisNode->self.x = x;
+            thisNode->self.y = y;
+            thisNode->parent = nullptr;
+            thisNode->bVisited = false;
+            thisNode->gCost = INFINITY;
+            thisNode->fCost = INFINITY;
+            if(eMap[y][x] == SAFE)
+                thisNode->bObstacle = false;
+            else
+                thisNode->bObstacle = true;
+        }
+    }  
+}
+
+void ACML::Direction_Handler(Node* _current)
+{
+    int x = _current->self.x;
+    int y = _current->self.y;
+    int p_x = _current->parent->self.x;
+    int p_y = _current->parent->self.y;
+
+    float theta = atan2((float)y-p_y,(float)x-p_x);
+    //printf("%d,%d,%f\n",p_x,p_y,theta/3.14*180.0);
+    _current->parent->w = cos(theta/2);
+    _current->parent->z = sin(theta/2);
+}
+
+void ACML::solveAStar(Node *nodeStart, Node *nodeEnd)
+{
+    std::list<Node*> listNotTestedNodes;
+    std::deque<Node*> path;
+    if(nodeStart == nullptr)
+    {
+        /*init*/
+        true_Coordinate t={
+          .x = 0.0,
+          .y = 0.0
+        };
+        grid_Coordinate* g = t2g(&t);
+        nodeStart = &nodes[(g->y)*width+(g->x)];
+    }
+
+    assert(nodeEnd!=nullptr);
+
+    /* A star */
+    auto distance = [](Node* a, Node* b)
+    {
+        return sqrtf((a->self.x - b->self.x)*(a->self.x - b->self.x)+(a->self.y - b->self.y)*(a->self.y - b->self.y));
+    };
+
+    auto heuristic = [distance](Node* a, Node* b)
+    {
+        return distance(a,b);
+    };
+
+    /*init nodeCurrent and update fcost and gcost*/
+    Node* nodeCurrent = nodeStart;
+    nodeStart->gCost = 0.0f;
+    nodeStart->fCost = heuristic(nodeStart,nodeEnd);
+    listNotTestedNodes.push_back(nodeStart);
+
+    /*A* Main*/
+    while(!listNotTestedNodes.empty() && nodeCurrent != nodeEnd)
+    {
+        listNotTestedNodes.sort([](const Node* lhs, const Node* rhs){return lhs->fCost < rhs->fCost;});
+
+        /*ditch visited nodes*/
+        while(!listNotTestedNodes.empty() && listNotTestedNodes.front()->bVisited)
+            listNotTestedNodes.pop_front();
+        
+        /*ensure list not empty after ditched some node*/
+        if(listNotTestedNodes.empty())
+            break;
+        
+        nodeCurrent = listNotTestedNodes.front();
+        nodeCurrent->bVisited = true;
+
+        /*check neighbors*/
+        for(auto nodeNeighbor : nodeCurrent->vecNeighbors)
+        {
+            /*add nodeNeighbor to NotTestedList only if not visited and not obstacle*/
+            if(!nodeNeighbor->bVisited && nodeNeighbor->bObstacle == SAFE)
+                listNotTestedNodes.push_back(nodeNeighbor);
+
+            /*compare gcost of neighbors to decide nodeCurrent become parent of it's neighbors or not*/
+            float fPossiblyLowerGoal = nodeCurrent->gCost + distance(nodeCurrent,nodeNeighbor);  
+            if(fPossiblyLowerGoal < nodeNeighbor->gCost)
+            {
+                nodeNeighbor->parent = nodeCurrent;
+                nodeNeighbor->gCost = fPossiblyLowerGoal;
+                nodeNeighbor->fCost = nodeNeighbor->gCost + heuristic(nodeNeighbor, nodeEnd);
+            }
+        }
+        printf("Length of listNotTestedNodes:%d\n",listNotTestedNodes.size());
+    }
+    
+    /*Store Path in Deque*/
+
+    nodeCurrent = nodeEnd;
+    int count = 0;
+    while(nodeCurrent->parent != nullptr)
+    {
+        Direction_Handler(nodeCurrent);
+        AStar_Path.push_front(nodeCurrent);
+        nodeCurrent = nodeCurrent->parent;
+        count++;
+    }
+    printf("step count : %d\n",count);
+}
+
+
 int main(int argc, char** argv)
 {
     ros::init(argc,argv,"ACML");
@@ -330,6 +620,17 @@ int main(int argc, char** argv)
         ROS_INFO("Init Done!");
         ros::Rate rate(LOOP_RATE);
         myACML.Enlargemap();
+        while(ros::ok())
+        {
+            if(myACML.getNewGoal)
+            {
+                myACML.updateAStar();
+                myACML.getNewGoal = false;
+            }
+            myACML.pubIfReached();
+            ros::spinOnce();
+            rate.sleep();  
+        }
     }
     else
         ROS_WARN("Can't get anything from /map in waiting process or Sub/Pub failed");
