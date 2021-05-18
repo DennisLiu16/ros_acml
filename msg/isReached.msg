@@ -1,1 +1,1 @@
-bool Reached
+int8 Reached

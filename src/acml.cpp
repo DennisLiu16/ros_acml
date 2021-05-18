@@ -30,7 +30,11 @@
 #define OCCUPIED 100
 #define DEFAULT 0.0
 #define E_SIZE 3    //Enlarge size
-#define PATH_PUB_INTERVAL 10     //  point interval
+#define PATH_PUB_INTERVAL 0     //  point interval
+
+#define CLOSE 2
+#define ARRIVE 1
+#define NOTYET 0
 /*print type*/
 #define PRINT_TYPE_MAP 0 
 #define PRINT_TYPE_ASTAR_PATH 1
@@ -164,11 +168,11 @@ void ACML::pub()
 
 void ACML::pubIfReached()
 {
-    if(!AStar_Path.empty() && my_reached != nullptr && my_reached->Reached)
+    if(!AStar_Path.empty() && my_reached != nullptr && my_reached->Reached != NOTYET)
     {
         pub();
     }
-    else if(my_reached != nullptr && my_reached->Reached)
+    else if(my_reached != nullptr && my_reached->Reached == ARRIVE)
     {
         ROS_INFO("Arrive!");
     }
@@ -187,8 +191,8 @@ bool ACML::updateAStar()
         printf("%f,%f\n",my_sub_goal->pose.position.x,my_sub_goal->pose.position.y);
         /* if user input do solveAStar */
         true_Coordinate tGoal = {
-            .x = my_sub_goal->pose.position.x,
-            .y = my_sub_goal->pose.position.y
+            .x = (float)my_sub_goal->pose.position.x,
+            .y = (float)my_sub_goal->pose.position.y
         };
         grid_Coordinate *gGoal = t2g(&tGoal);
         /* init nodes*/
@@ -196,8 +200,8 @@ bool ACML::updateAStar()
 
         /* solve Astar path*/
         true_Coordinate tStart = {
-            .x = my_pose->linear.x,
-            .y = my_pose->linear.y
+            .x = (float)my_pose->linear.x,
+            .y = (float)my_pose->linear.y
         };
 
 
