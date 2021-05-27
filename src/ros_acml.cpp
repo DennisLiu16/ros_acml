@@ -614,7 +614,6 @@ void ACML::solveAStar(Node *nodeStart, Node *nodeEnd)
         /*ensure list not empty after ditched some node*/
         if(listNotTestedNodes.empty())
             break;
-        
         nodeCurrent = listNotTestedNodes.front();
         nodeCurrent->bVisited = true;
 
@@ -683,7 +682,6 @@ int main(int argc, char** argv)
     }
     else
         ROS_WARN("Can't get anything from /map in waiting process or Sub/Pub failed");
-      
     return 0;
 }
 
