@@ -211,7 +211,7 @@ bool ACML::updateAStar()
         printf("Start(%d,%d)\n",NodeStart->self.x,NodeStart->self.y);
         printf("End(%d,%d)\n",NodeEnd->self.x,NodeEnd->self.y);
         solveAStar(NodeStart,NodeEnd);
-        print(PRINT_TYPE_ASTAR_PATH);
+        //print(PRINT_TYPE_ASTAR_PATH);
 
         /*pub first*/
         pub();
@@ -294,7 +294,7 @@ void ACML::Enlargemap()
 {
     Map = getMap2DArray();
     eMap = getEMap(Map);
-    print(PRINT_TYPE_MAP);
+    // print(PRINT_TYPE_MAP);
 }
 
 void ACML::print(int type)
